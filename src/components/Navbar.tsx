@@ -1,7 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { User, ChevronDown, Users, FileText, Wrench, UserCog, LogOut } from 'lucide-react';
+import { User, ChevronDown, ChevronRight, Users, FileText, Wrench, UserCog, LogOut } from 'lucide-react';
 
-const Navbar: React.FC = () => {
+interface NavbarProps {
+  breadcrumb?: { section: string; item: string };
+}
+
+const Navbar: React.FC<NavbarProps> = ({ breadcrumb }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -23,6 +27,14 @@ const Navbar: React.FC = () => {
         </div>
         <span style={styles.brandName}>GlassLogic</span>
       </div>
+
+      {breadcrumb && (
+        <div style={styles.breadcrumb}>
+          <span style={styles.breadcrumbItem}>{breadcrumb.section}</span>
+          <ChevronRight size={12} color="#d1d5db" />
+          <span style={styles.breadcrumbActive}>{breadcrumb.item}</span>
+        </div>
+      )}
 
       <div style={styles.right} ref={dropdownRef}>
         <button style={styles.userButton} onClick={() => setDropdownOpen((o) => !o)}>
@@ -100,6 +112,25 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     fontSize: 16,
     color: '#111827',
+  },
+  breadcrumb: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    background: '#f9fafb',
+    border: '1px solid #e5e7eb',
+    borderRadius: 20,
+    padding: '4px 12px',
+  },
+  breadcrumbItem: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: 500,
+  },
+  breadcrumbActive: {
+    fontSize: 12,
+    color: '#16a34a',
+    fontWeight: 600,
   },
   right: {
     position: 'relative',

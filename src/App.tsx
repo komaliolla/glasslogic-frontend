@@ -1,20 +1,54 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
+import PrintSetupModal from './components/PrintSetupModal';
+import CustomerList from './components/CustomerList';
+
+type ActivePage  = 'customer-list' | null;
+type ActiveModal = 'print-setup'   | null;
+
+const pageBreadcrumbs: Record<string, { section: string; item: string }> = {
+  'customer-list': { section: 'Customer', item: 'Customer List' },
+};
+
+const modalBreadcrumbs: Record<string, { section: string; item: string }> = {
+  'print-setup': { section: 'File', item: 'Print Setup' },
+};
 
 const App: React.FC = () => {
+  const [activePage,  setActivePage]  = useState<ActivePage>(null);
+  const [activeModal, setActiveModal] = useState<ActiveModal>(null);
+
+  const handleItemClick = (itemId: string) => {
+    if (itemId === 'print-setup')   { setActiveModal('print-setup');   return; }
+    if (itemId === 'customer-list') { setActivePage('customer-list'); setActiveModal(null); }
+  };
+
+  const breadcrumb =
+    activePage  ? pageBreadcrumbs[activePage]   :
+    activeModal ? modalBreadcrumbs[activeModal]  :
+    undefined;
+
   return (
     <div style={styles.root}>
-      <Navbar />
+      <Navbar breadcrumb={breadcrumb} />
       <div style={styles.body}>
-        <Sidebar />
+        <Sidebar onItemClick={handleItemClick} />
         <main style={styles.main}>
-          <div style={styles.placeholder}>
-            <span style={styles.placeholderTitle}>ADMIN</span>
-            <span style={styles.placeholderSub}>Select an option from the sidebar</span>
-          </div>
+          {activePage === 'customer-list' ? (
+            <CustomerList onClose={() => setActivePage(null)} />
+          ) : (
+            <div style={styles.placeholder}>
+              <span style={styles.placeholderTitle}>ADMIN</span>
+              <span style={styles.placeholderSub}>Select an option from the sidebar</span>
+            </div>
+          )}
         </main>
       </div>
+
+      {activeModal === 'print-setup' && (
+        <PrintSetupModal onClose={() => setActiveModal(null)} />
+      )}
     </div>
   );
 };
@@ -35,13 +69,14 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
     background: '#f9fafb',
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    overflow: 'hidden',
   },
   placeholder: {
+    flex: 1,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
   },
   placeholderTitle: {

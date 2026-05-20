@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   ChevronDown,
-  Printer, Wrench, LogOut,
+  Printer, LogOut,
   List, TrendingUp, Tag, Building2,
   FileText, Send, Clock,
   DollarSign, BarChart2, Calendar, CheckSquare,
@@ -31,7 +31,6 @@ const menuSections: MenuSection[] = [
     title: 'FILE',
     items: [
       { id: 'print-setup', label: 'Print Setup', icon: <Printer size={15} /> },
-      { id: 'toolbars', label: 'Toolbars', icon: <Wrench size={15} /> },
       { id: 'exit', label: 'Exit', icon: <LogOut size={15} /> },
     ],
   },
@@ -102,7 +101,11 @@ const menuSections: MenuSection[] = [
   },
 ];
 
-const Sidebar: React.FC = () => {
+interface SidebarProps {
+  onItemClick?: (itemId: string) => void;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ onItemClick }) => {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['customer', 'invoice', 'reports'])
   );
@@ -154,7 +157,10 @@ const Sidebar: React.FC = () => {
                       <div key={item.id}>
                         <button
                           style={styles.menuItem}
-                          onClick={() => hasSubItems && toggleItem(item.id)}
+                          onClick={() => {
+                            if (hasSubItems) toggleItem(item.id);
+                            else onItemClick?.(item.id);
+                          }}
                         >
                           <span style={styles.itemIcon}>{item.icon}</span>
                           <span style={styles.itemLabel}>{item.label}</span>
