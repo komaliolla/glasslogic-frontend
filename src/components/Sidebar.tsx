@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   ChevronDown,
-  Printer, LogOut,
+  Printer,
   List, TrendingUp, Tag, Building2,
   FileText, Send, Clock,
   DollarSign, BarChart2, Calendar, CheckSquare,
@@ -31,7 +31,7 @@ const menuSections: MenuSection[] = [
     title: 'FILE',
     items: [
       { id: 'print-setup', label: 'Print Setup', icon: <Printer size={15} /> },
-      { id: 'exit', label: 'Exit', icon: <LogOut size={15} /> },
+      { id: 'schedule',    label: 'Schedule',    icon: <Calendar size={15} /> },
     ],
   },
   {

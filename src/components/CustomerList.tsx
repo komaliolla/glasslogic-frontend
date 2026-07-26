@@ -1,48 +1,66 @@
-import React, { useState } from 'react';
-import { Users, X, Search, Trash2, Plus } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Users, X, Search, Trash2, Plus, Check } from 'lucide-react';
+import { api, type Customer } from '../api/client';
 
-interface Customer {
-  id: number;
-  name: string;
-  company: string;
-  route: string;
-}
-
-const initialCustomers: Customer[] = [
-  { id: 1, name: 'ABC GLASS CO',      company: 'PROGRESSIVE',          route: 'Route B' },
-  { id: 2, name: 'GOOGLE',            company: 'FARMERS INSURANCE',    route: 'Route A' },
-  { id: 3, name: 'JONES COLLISION',   company: 'ALLSTATE',             route: 'Route C' },
-  { id: 4, name: 'SMITH AUTO GLASS',  company: 'STATE FARM INSURANCE', route: 'Route A' },
-  { id: 5, name: 'TEST SHOP',         company: '',                     route: 'Route B' },
-];
+const ROUTES = ['Route A', 'Route B', 'Route C', 'Route D', 'Route E'];
 
 interface Props {
   onClose: () => void;
 }
 
+interface InsertForm {
+  name: string; company: string; route: string; phone: string; address: string;
+}
+const emptyForm = (): InsertForm => ({ name: '', company: '', route: '', phone: '', address: '' });
+
 const CustomerList: React.FC<Props> = ({ onClose }) => {
   const [query, setQuery]           = useState('');
-  const [customers, setCustomers]   = useState<Customer[]>(initialCustomers);
+  const [customers, setCustomers]   = useState<Customer[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [showInsert, setShowInsert] = useState(false);
+  const [form, setForm]             = useState<InsertForm>(emptyForm());
+  const [errors, setErrors]         = useState<Partial<InsertForm>>({});
+
+  useEffect(() => {
+    api.getCustomers().then(setCustomers).catch(() => {});
+  }, []);
 
   const search = (q: string) => {
-    const lower = q.toLowerCase();
-    setCustomers(
-      q.trim()
-        ? initialCustomers.filter(
-            c =>
-              c.name.toLowerCase().includes(lower) ||
-              c.company.toLowerCase().includes(lower) ||
-              c.route.toLowerCase().includes(lower)
-          )
-        : initialCustomers
-    );
+    api.getCustomers(q.trim() || undefined).then(setCustomers).catch(() => {});
   };
 
   const handleDelete = () => {
     if (selectedId === null) return;
-    setCustomers(prev => prev.filter(c => c.id !== selectedId));
-    setSelectedId(null);
+    api.deleteCustomer(selectedId).then(() => {
+      setCustomers(prev => prev.filter(c => c.id !== selectedId));
+      setSelectedId(null);
+    }).catch(() => {});
+  };
+
+  const openInsert = () => { setForm(emptyForm()); setErrors({}); setShowInsert(true); };
+  const closeInsert = () => setShowInsert(false);
+
+  const handleInsertSave = () => {
+    const e: Partial<InsertForm> = {};
+    if (!form.name.trim())    e.name    = 'Required';
+    if (!form.company.trim()) e.company = 'Required';
+    setErrors(e);
+    if (Object.keys(e).length > 0) return;
+    api.createCustomer({
+      name:    form.name.trim().toUpperCase(),
+      company: form.company.trim().toUpperCase(),
+      route:   form.route || ROUTES[0],
+      phone:   form.phone.trim(),
+      address: form.address.trim(),
+    }).then(newCustomer => {
+      setCustomers(prev => [...prev, newCustomer]);
+      setShowInsert(false);
+    }).catch(() => {});
+  };
+
+  const set = (field: keyof InsertForm) => (v: string) => {
+    setForm(f => ({ ...f, [field]: v }));
+    setErrors(e => ({ ...e, [field]: undefined }));
   };
 
   return (
@@ -97,7 +115,7 @@ const CustomerList: React.FC<Props> = ({ onClose }) => {
               <span style={{ color: '#ef4444' }}>Delete</span>
             </button>
           </div>
-          <button style={styles.btnInsert}>
+          <button style={styles.btnInsert} onClick={openInsert}>
             <Plus size={14} color="#fff" />
             <span>Insert</span>
           </button>
@@ -143,8 +161,105 @@ const CustomerList: React.FC<Props> = ({ onClose }) => {
           <button style={styles.btnOutline}>Sort By Route/Name</button>
         </div>
       </div>
+
+      {/* ── Insert dialog ── */}
+      {showInsert && (
+        <div style={dlg.overlay} onClick={e => e.target === e.currentTarget && closeInsert()}>
+          <div style={dlg.box}>
+
+            {/* Header */}
+            <div style={dlg.header}>
+              <div>
+                <div style={dlg.title}>Add New Customer</div>
+                <div style={dlg.sub}>Fill in the details below to create a new customer record</div>
+              </div>
+              <button style={dlg.closeBtn} onClick={closeInsert}><X size={16} /></button>
+            </div>
+
+            {/* Fields */}
+            <div style={dlg.body}>
+              <DlgField label="Customer Name" required error={errors.name}
+                placeholder="e.g. APEX GLASS WORKS"
+                value={form.name} onChange={set('name')} />
+
+              <DlgField label="Company" required error={errors.company}
+                placeholder="e.g. GEICO INSURANCE"
+                value={form.company} onChange={set('company')} />
+
+              <div style={dlg.row}>
+                <DlgField label="Route" value={form.route} onChange={set('route')}
+                  placeholder="" type="select" options={ROUTES} />
+                <DlgField label="Phone" value={form.phone} onChange={set('phone')}
+                  placeholder="e.g. (708) 555-0100" />
+              </div>
+
+              <DlgField label="Address" value={form.address} onChange={set('address')}
+                placeholder="e.g. 123 Main St, Springfield, IL 60601" />
+            </div>
+
+            {/* Footer */}
+            <div style={dlg.footer}>
+              <button style={dlg.btnSave} onClick={handleInsertSave}>
+                <Check size={14} /> Save Customer
+              </button>
+              <button style={dlg.btnCancel} onClick={closeInsert}>Cancel</button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
+};
+
+/* ── Dialog field helper ── */
+const DlgField: React.FC<{
+  label: string; value: string; error?: string; required?: boolean;
+  placeholder?: string; type?: 'text' | 'select'; options?: string[];
+  onChange: (v: string) => void;
+}> = ({ label, value, error, required, placeholder, type = 'text', options = [], onChange }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
+    <label style={{ fontSize: 12, fontWeight: 600, color: error ? '#ef4444' : '#374151' }}>
+      {label} {required && <span style={{ color: '#ef4444' }}>*</span>}
+    </label>
+    {type === 'select' ? (
+      <select
+        style={{ ...dlg.input, background: '#fff' }}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      >
+        {options.map(o => <option key={o}>{o}</option>)}
+      </select>
+    ) : (
+      <input
+        style={{ ...dlg.input, borderColor: error ? '#fca5a5' : '#d1d5db', background: error ? '#fff5f5' : '#fff' }}
+        value={value}
+        placeholder={placeholder}
+        onChange={e => onChange(e.target.value)}
+      />
+    )}
+    {error && <span style={{ fontSize: 11, color: '#ef4444' }}>{error}</span>}
+  </div>
+);
+
+/* ── Dialog styles ── */
+const dlg: Record<string, React.CSSProperties> = {
+  overlay:   { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  box:       { background: '#fff', borderRadius: 12, width: 480, maxWidth: '94vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', overflow: 'hidden' },
+
+  header:    { background: '#16a34a', padding: '20px 24px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' },
+  title:     { fontSize: 17, fontWeight: 700, color: '#fff' },
+  sub:       { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 3 },
+  closeBtn:  { background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 6, cursor: 'pointer', padding: 6, display: 'flex', alignItems: 'center', color: '#fff' },
+
+  body:      { padding: '22px 24px 16px', display: 'flex', flexDirection: 'column', gap: 14 },
+  row:       { display: 'flex', gap: 14 },
+  input:     { width: '100%', padding: '9px 12px', border: '1.5px solid #d1d5db', borderRadius: 7, fontSize: 13, color: '#111827', outline: 'none', boxSizing: 'border-box' as const },
+
+  footer:    { padding: '14px 24px 20px', display: 'flex', gap: 10 },
+  btnSave:   { display: 'flex', alignItems: 'center', gap: 6, padding: '10px 22px', background: '#16a34a', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer' },
+  btnCancel: { padding: '10px 18px', background: '#fff', border: '1.5px solid #e5e7eb', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer' },
 };
 
 const styles: Record<string, React.CSSProperties> = {
@@ -204,12 +319,14 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: 16,
     flex: 1,
-    overflowY: 'auto',
+    overflow: 'hidden',
+    minHeight: 0,
   },
   searchSection: {
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
+    flexShrink: 0,
   },
   searchLabel: {
     fontSize: 13,
@@ -231,6 +348,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
+    flexShrink: 0,
   },
   actionsLeft: {
     display: 'flex',
@@ -280,9 +398,11 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
   },
   tableWrapper: {
+    flex: 1,
     border: '1px solid #e5e7eb',
     borderRadius: 10,
-    overflow: 'hidden',
+    overflowY: 'auto' as const,
+    minHeight: 0,
   },
   table: {
     width: '100%',
@@ -290,6 +410,9 @@ const styles: Record<string, React.CSSProperties> = {
   },
   tableHead: {
     background: '#16a34a',
+    position: 'sticky' as const,
+    top: 0,
+    zIndex: 1,
   },
   th: {
     padding: '12px 18px',
@@ -318,6 +441,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     justifyContent: 'flex-end',
     paddingTop: 4,
+    flexShrink: 0,
   },
 };
 

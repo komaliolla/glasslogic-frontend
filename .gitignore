@@ -1,4 +1,33 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+dist-ssr/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# Raw NAGS reference data dump (large flat files, not source)
+DATA/
+
+# Editor / tooling
 .claude/
+.vscode/*
+!.vscode/extensions.json
+.idea/
 *.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
