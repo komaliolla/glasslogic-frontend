@@ -7,14 +7,14 @@ import Discounts      from './components/Discounts';
 import BusinessTypes  from './components/BusinessTypes';
 import NAGSByVehicle    from './components/NAGSByVehicle';
 import NAGSByPartNumber from './components/NAGSByPartNumber';
-import SavedQuotes      from './components/SavedQuotes';
-import Invoice          from './components/Invoice';
+import Invoice, { MOCK_INVOICES } from './components/Invoice';
+import PaidInvoices     from './components/PaidInvoices';
 import Schedule         from './components/Schedule';
 import SendEDIClaims    from './components/SendEDIClaims';
 import PendingEDIClaims from './components/PendingEDIClaims';
-import { InvoiceRecord } from './types';
+import { InvoiceRecord, InvoicePrefill } from './types';
 
-type ActivePage  = 'customer-list' | 'discounts' | 'business-types' | 'nags-vehicle' | 'nags-part' | 'saved-quotes' | 'invoice' | 'invoice-list' | 'schedule' | 'send-edi' | 'pending-edi' | null;
+type ActivePage  = 'customer-list' | 'discounts' | 'business-types' | 'nags-vehicle' | 'nags-part' | 'invoice' | 'invoice-list' | 'receivables-list' | 'schedule' | 'send-edi' | 'pending-edi' | null;
 type ActiveModal = 'print-setup' | null;
 
 const pageBreadcrumbs: Record<string, { section: string; item: string }> = {
@@ -23,9 +23,9 @@ const pageBreadcrumbs: Record<string, { section: string; item: string }> = {
   'business-types': { section: 'Customer',     item: 'Business Types'   },
   'nags-vehicle':   { section: 'Quotes (A/R)', item: 'NAGS by Vehicle'  },
   'nags-part':      { section: 'Quotes (A/R)', item: 'NAGS by Part #'   },
-  'saved-quotes':   { section: 'Quotes (A/R)', item: 'Saved Quotes'     },
   'invoice':        { section: 'Invoice',      item: 'Invoice Editor'   },
   'invoice-list':   { section: 'Invoice',      item: 'List of Invoices' },
+  'receivables-list': { section: 'Receivables (A/R)', item: 'Paid Invoices' },
   'send-edi':       { section: 'Invoice',      item: 'Send EDI Claims'    },
   'pending-edi':    { section: 'Invoice',      item: 'Pending EDI Claims' },
   'schedule':       { section: 'File',         item: 'Schedule'         },
@@ -39,7 +39,19 @@ const App: React.FC = () => {
   const [activePage,   setActivePage]   = useState<ActivePage>(null);
   const [activeModal,  setActiveModal]  = useState<ActiveModal>(null);
   const [userInvoices, setUserInvoices] = useState<InvoiceRecord[]>([]);
+  const [deletedInvoiceIds, setDeletedInvoiceIds] = useState<Set<number>>(new Set());
   const [nextInvoiceId, setNextInvoiceId] = useState(19);
+  const [invoicePrefill, setInvoicePrefill] = useState<InvoicePrefill | undefined>(undefined);
+
+  // Real (saved) invoices shadow the demo rows once touched, and deletions apply
+  // regardless of whether the row started as a demo or a real one.
+  const visibleInvoices = [...userInvoices, ...MOCK_INVOICES.filter(m => !userInvoices.some(i => i.id === m.id))]
+    .filter(i => !deletedInvoiceIds.has(i.id));
+
+  const handleTurnIntoInvoice = (prefill: InvoicePrefill) => {
+    setInvoicePrefill(prefill);
+    setActivePage('invoice');
+  };
 
   const handleSaveInvoice = (record: InvoiceRecord) => {
     setUserInvoices(prev => {
@@ -54,8 +66,10 @@ const App: React.FC = () => {
     if (record.id >= nextInvoiceId) setNextInvoiceId(record.id + 1);
   };
 
-  const handleDeleteInvoice = (id: number) =>
+  const handleDeleteInvoice = (id: number) => {
     setUserInvoices(prev => prev.filter(r => r.id !== id));
+    setDeletedInvoiceIds(prev => new Set(prev).add(id));
+  };
 
   const handleItemClick = (itemId: string) => {
     if (itemId === 'print-setup')    { setActiveModal('print-setup');  return; }
@@ -64,9 +78,9 @@ const App: React.FC = () => {
     if (itemId === 'business-types') { setActivePage('business-types');setActiveModal(null); }
     if (itemId === 'nags-vehicle')   { setActivePage('nags-vehicle');  setActiveModal(null); }
     if (itemId === 'nags-part')      { setActivePage('nags-part');     setActiveModal(null); }
-    if (itemId === 'saved-quotes')   { setActivePage('saved-quotes');  setActiveModal(null); }
     if (itemId === 'schedule')       { setActivePage('schedule');      setActiveModal(null); }
     if (itemId === 'list-invoices')  { setActivePage('invoice-list');  setActiveModal(null); }
+    if (itemId === 'receivables-list') { setActivePage('receivables-list'); setActiveModal(null); }
     if (itemId === 'send-edi')       { setActivePage('send-edi');      setActiveModal(null); }
     if (itemId === 'pending-edi')    { setActivePage('pending-edi');   setActiveModal(null); }
   };
@@ -91,20 +105,18 @@ const App: React.FC = () => {
           ) : activePage === 'nags-vehicle' ? (
             <NAGSByVehicle
               onClose={() => setActivePage(null)}
-              onTurnIntoInvoice={() => setActivePage('invoice')}
+              onTurnIntoInvoice={handleTurnIntoInvoice}
             />
           ) : activePage === 'nags-part' ? (
             <NAGSByPartNumber
               onClose={() => setActivePage(null)}
               onTurnIntoInvoice={() => setActivePage('invoice')}
             />
-          ) : activePage === 'saved-quotes' ? (
-            <SavedQuotes onClose={() => setActivePage(null)} />
           ) : activePage === 'invoice-list' ? (
             <Invoice
               onClose={() => setActivePage(null)}
               startView="list"
-              invoices={userInvoices}
+              invoices={visibleInvoices}
               onSaveInvoice={handleSaveInvoice}
               onDeleteInvoice={handleDeleteInvoice}
               nextInvoiceId={nextInvoiceId}
@@ -113,10 +125,18 @@ const App: React.FC = () => {
             <Invoice
               onClose={() => setActivePage(null)}
               startView="editor"
-              invoices={userInvoices}
+              invoices={visibleInvoices}
               onSaveInvoice={handleSaveInvoice}
               onDeleteInvoice={handleDeleteInvoice}
               nextInvoiceId={nextInvoiceId}
+              prefill={invoicePrefill}
+            />
+          ) : activePage === 'receivables-list' ? (
+            <PaidInvoices
+              onClose={() => setActivePage(null)}
+              invoices={visibleInvoices}
+              onUpdateInvoice={handleSaveInvoice}
+              onDeleteInvoice={handleDeleteInvoice}
             />
           ) : activePage === 'send-edi' ? (
             <SendEDIClaims onClose={() => setActivePage(null)} />

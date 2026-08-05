@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Tag, X, Trash2, Layers, Plus, Save } from 'lucide-react';
-import { api, type Discount } from '../api/client';
+import { Tag, X, Trash2, Layers, Plus, Save, ChevronDown, ChevronUp } from 'lucide-react';
+import { api, type Discount, type NagsPrefixPart } from '../api/client';
 
 /* ── Types ── */
 interface DetailRow {
@@ -178,13 +178,32 @@ const Discounts: React.FC<Props> = ({ onClose }) => {
     setShowDetailModal(false);
   };
 
-  const removeDetail = (id: number) => setDetailRows(prev => prev.filter(r => r.id !== id));
-  const updateDetail = (id: number, field: keyof DetailRow, value: string) =>
-    setDetailRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
-  const addDetailRow = () =>
-    setDetailRows(prev => [...prev, { id: Date.now(), nagsPrefix: '', partType: 'Windshield', flatHourly: 'Flat', discount: '0.00', labor: '0.00', minHours: '0.00', maxHours: '0.00' }]);
-
   const [saveError, setSaveError] = useState('');
+
+  // discount_detail.nags_prefix is CHAR(2) in gl2015m1 — only real NAGS prefixes
+  // (from the parts table) fit. Expand each category's rate into one row per
+  // real prefix instead of sending a blank/fallback prefix, which would
+  // overflow the column and fail the insert under STRICT_TRANS_TABLES.
+  const expandToNagsPrefixRows = (rows: DetailRow[]) => {
+    const byType: Record<string, DetailRow | undefined> = {};
+    for (const r of rows) byType[r.partType] = r;
+    return nagsParts.map(p => {
+      const r = byType[p.part_type];
+      return {
+        nags_prefix:      p.nags_prefix,
+        part_type:        p.part_type,
+        flat_or_hourly:   (r?.flatHourly ?? 'Flat') as 'Flat' | 'Hourly',
+        discount_amount:  parseFloat(r?.discount ?? '0') || 0,
+        labor_rate:       parseFloat(r?.labor ?? '0') || 0,
+        min_hours:        parseFloat(r?.minHours ?? '0') || 0,
+        max_hours:        parseFloat(r?.maxHours ?? '0') || 0,
+        discount_amount2: parseFloat(r?.discount ?? '0') || 0,
+        labor_rate2:      parseFloat(r?.labor ?? '0') || 0,
+        min_hours2:       parseFloat(r?.minHours ?? '0') || 0,
+        max_hours2:       parseFloat(r?.maxHours ?? '0') || 0,
+      };
+    });
+  };
 
   const buildPayload = () => ({
     discount_name:        name.trim(),
@@ -203,19 +222,7 @@ const Discounts: React.FC<Props> = ({ onClose }) => {
     addtnl_repair_amount: parseFloat(addtnlRepairAmt) || 0,
     edi_flag:             ediEnabled ? 'Y' : 'N',
     edi_format:           ediFormat,
-    details: detailRows.map(r => ({
-      nags_prefix:      r.nagsPrefix,
-      part_type:        r.partType,
-      flat_or_hourly:   r.flatHourly as 'Flat' | 'Hourly',
-      discount_amount:  parseFloat(r.discount) || 0,
-      labor_rate:       parseFloat(r.labor) || 0,
-      min_hours:        parseFloat(r.minHours) || 0,
-      max_hours:        parseFloat(r.maxHours) || 0,
-      discount_amount2: parseFloat(r.discount) || 0,
-      labor_rate2:      parseFloat(r.labor) || 0,
-      min_hours2:       parseFloat(r.minHours) || 0,
-      max_hours2:       parseFloat(r.maxHours) || 0,
-    })),
+    details: expandToNagsPrefixRows(detailRows),
   });
 
   const applyLocalUpdate = (savedCode: string) => {
@@ -223,20 +230,7 @@ const Discounts: React.FC<Props> = ({ onClose }) => {
     const saved: Discount = {
       discount_code: savedCode,
       ...payload,
-      details: detailRows.map(r => ({
-        discount_code:    savedCode,
-        nags_prefix:      r.nagsPrefix,
-        part_type:        r.partType,
-        flat_or_hourly:   r.flatHourly as 'Flat' | 'Hourly',
-        discount_amount:  parseFloat(r.discount) || 0,
-        labor_rate:       parseFloat(r.labor) || 0,
-        min_hours:        parseFloat(r.minHours) || 0,
-        max_hours:        parseFloat(r.maxHours) || 0,
-        discount_amount2: parseFloat(r.discount) || 0,
-        labor_rate2:      parseFloat(r.labor) || 0,
-        min_hours2:       parseFloat(r.minHours) || 0,
-        max_hours2:       parseFloat(r.maxHours) || 0,
-      })),
+      details: expandToNagsPrefixRows(detailRows).map(row => ({ discount_code: savedCode, ...row })),
     };
     setDiscounts(prev =>
       prev.some(d => d.discount_code === savedCode)
@@ -265,26 +259,35 @@ const Discounts: React.FC<Props> = ({ onClose }) => {
     }
 
     const trimmedCode = code.trim().toUpperCase();
-    // Use PUT if we know this code already exists (either via card selection or code match in list)
-    const codeToUpdate = selectedCode ?? (discounts.some(d => d.discount_code === trimmedCode) ? trimmedCode : null);
+    // Use PUT only if the code currently in the form still matches an existing discount —
+    // if the user changed the code away from a loaded discount, this is a new entry to create.
+    const codeToUpdate = discounts.some(d => d.discount_code === trimmedCode) ? trimmedCode : null;
+
+    const onSaveFailed = (err: Error) => {
+      setSaveError(err.message ?? 'Save failed.');
+      bodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    };
 
     if (codeToUpdate) {
       api.updateDiscount(codeToUpdate, buildPayload())
         .then(() => applyLocalUpdate(codeToUpdate))
-        .catch(err => setSaveError(err.message ?? 'Save failed.'));
+        .catch(onSaveFailed);
     } else {
       api.createDiscount({ discount_code: trimmedCode, ...buildPayload() })
         .then(({ discount_code: newCode }) => applyLocalUpdate(newCode))
-        .catch(err => setSaveError(err.message ?? 'Save failed.'));
+        .catch(onSaveFailed);
     }
   };
 
   // Current discounts list from MySQL (gl2015m1)
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  const [expandedCode, setExpandedCode] = useState<string | null>(null);
+  const [nagsParts, setNagsParts] = useState<NagsPrefixPart[]>([]);
 
   useEffect(() => {
     api.getDiscounts().then(data => setDiscounts(data)).catch(() => {});
+    api.getDiscountParts().then(setNagsParts).catch(() => {});
   }, []);
 
   const n = (v: unknown) => parseFloat(String(v) || '0') || 0;
@@ -319,6 +322,53 @@ const Discounts: React.FC<Props> = ({ onClose }) => {
     })));
     setSaveError('');
     setSubmitted(false);
+  };
+
+  const loadDiscountDetails = (d: Discount) => {
+    loadDiscount(d);
+    return api.getDiscountDetails(d.discount_code).then(details => {
+      const rows = details.map((det, i) => ({
+        id:         Date.now() + i,
+        nagsPrefix: det.nags_prefix || '',
+        partType:   det.part_type,
+        flatHourly: det.flat_or_hourly,
+        discount:   n(det.discount_amount).toFixed(2),
+        labor:      n(det.labor_rate).toFixed(2),
+        minHours:   n(det.min_hours).toFixed(2),
+        maxHours:   n(det.max_hours).toFixed(2),
+      }));
+      setDetailRows(rows);
+      return rows;
+    }).catch(() => {
+      setDetailRows([]);
+      return [] as DetailRow[];
+    });
+  };
+
+  // Expand a discount's per-category rates into one row per real NAGS prefix
+  // (from gl2015m1.parts), mirroring the legacy Discount Maintenance grid.
+  // While this discount is the one loaded in the form, read the live (possibly
+  // unsaved) detailRows so edits made in the Discount Detail popup show up here
+  // immediately instead of only after clicking the main Save button.
+  type RateSource = { part_type: string; flat_or_hourly: string; discount_amount: unknown; labor_rate: unknown; min_hours: unknown; max_hours: unknown };
+  const getExpandedRows = (d: Discount) => {
+    const source: RateSource[] = selectedCode === d.discount_code
+      ? detailRows.map(r => ({ part_type: r.partType, flat_or_hourly: r.flatHourly, discount_amount: r.discount, labor_rate: r.labor, min_hours: r.minHours, max_hours: r.maxHours }))
+      : d.details.map(det => ({ part_type: det.part_type, flat_or_hourly: det.flat_or_hourly, discount_amount: det.discount_amount, labor_rate: det.labor_rate, min_hours: det.min_hours, max_hours: det.max_hours }));
+    const byType: Record<string, RateSource | undefined> = {};
+    for (const det of source) byType[det.part_type] = det;
+    return nagsParts.map(p => {
+      const det = byType[p.part_type];
+      return {
+        nagsPrefix: p.nags_prefix,
+        partType:   p.part_type,
+        flatHourly: det?.flat_or_hourly ?? 'Flat',
+        discount:   n(det?.discount_amount).toFixed(2),
+        labor:      n(det?.labor_rate).toFixed(2),
+        minHours:   n(det?.min_hours).toFixed(2),
+        maxHours:   n(det?.max_hours).toFixed(2),
+      };
+    });
   };
 
   const removeDiscount = (discountCode: string) => {
@@ -412,62 +462,13 @@ const Discounts: React.FC<Props> = ({ onClose }) => {
             </div>
           </Section>
 
-          {/* Detail Lines */}
-          <Section title="Detail Lines" action={
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button style={styles.btnEditDetail} onClick={addDetailRow}>
-                <Plus size={13} color="#fff" /> Add Row
-              </button>
-              <button style={styles.btnEditDetail} onClick={() => {
-                setModalInitial(detailRows.length > 0 ? getDetailInitials(detailRows) : undefined);
-                setShowDetailModal(true);
-              }}>
-                <Plus size={13} color="#fff" /> {detailRows.length > 0 ? 'Edit Detail' : 'Insert Detail'}
-              </button>
-            </div>
-          }>
-            <div style={styles.tableWrapper}>
-              <table style={styles.table}>
-                <thead>
-                  <tr style={styles.tableHead}>
-                    {['NAGS Prefix', 'Part Type', 'Flat/Hourly', 'Discount', 'Labor', 'Min Hours', 'Max Hours', ''].map(h => (
-                      <th key={h} style={styles.th}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {detailRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} style={styles.emptyRow}>
-                        No detail lines — click Insert to add one
-                      </td>
-                    </tr>
-                  ) : detailRows.map(row => (
-                    <tr key={row.id} style={styles.tr}>
-                      <td style={styles.td}><input value={row.nagsPrefix} onChange={e => updateDetail(row.id, 'nagsPrefix', e.target.value)} style={styles.cellInput} placeholder="e.g. FW" /></td>
-                      <td style={styles.td}>
-                        <select value={row.partType} onChange={e => updateDetail(row.id, 'partType', e.target.value)} style={styles.cellSelect}>
-                          {['Windshield', 'Tempered', 'Flat'].map(pt => <option key={pt}>{pt}</option>)}
-                        </select>
-                      </td>
-                      <td style={styles.td}>
-                        <SelectInput value={row.flatHourly} onChange={v => updateDetail(row.id, 'flatHourly', v)} options={['Flat', 'Hourly']} />
-                      </td>
-                      <td style={styles.td}><input value={row.discount}  onChange={e => updateDetail(row.id, 'discount',  e.target.value)} style={styles.cellInput} /></td>
-                      <td style={styles.td}><input value={row.labor}     onChange={e => updateDetail(row.id, 'labor',     e.target.value)} style={styles.cellInput} /></td>
-                      <td style={styles.td}><input value={row.minHours}  onChange={e => updateDetail(row.id, 'minHours',  e.target.value)} style={styles.cellInput} /></td>
-                      <td style={styles.td}><input value={row.maxHours}  onChange={e => updateDetail(row.id, 'maxHours',  e.target.value)} style={styles.cellInput} /></td>
-                      <td style={styles.td}>
-                        <button style={styles.deleteRowBtn} onClick={() => removeDetail(row.id)}>
-                          <Trash2 size={13} color="#ef4444" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Section>
+          {/* Adds the discount straight to Current Discounts — per-glass-type rates can be
+              fine-tuned afterward via double-click on the card, same as any other entry. */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+            <button style={styles.btnEditDetail} onClick={handleSave}>
+              <Plus size={13} color="#fff" /> Insert
+            </button>
+          </div>
 
           <div style={styles.divider} />
 
@@ -478,44 +479,68 @@ const Discounts: React.FC<Props> = ({ onClose }) => {
             </div>
             <div style={styles.discountList}>
               {discounts.length === 0 && <div style={styles.emptyRow}>No discounts yet</div>}
-              {discounts.map(d => (
-                <div
-                  key={d.discount_code}
-                  style={{ ...styles.discountCard, ...(selectedCode === d.discount_code ? styles.discountCardSelected : {}) }}
-                  onClick={() => setSelectedCode(d.discount_code)}
-                  onDoubleClick={() => {
-                    loadDiscount(d);
-                    api.getDiscountDetails(d.discount_code).then(details => {
-                      const rows = details.map((det, i) => ({
-                        id:         Date.now() + i,
-                        nagsPrefix: det.nags_prefix || '',
-                        partType:   det.part_type,
-                        flatHourly: det.flat_or_hourly,
-                        discount:   n(det.discount_amount).toFixed(2),
-                        labor:      n(det.labor_rate).toFixed(2),
-                        minHours:   n(det.min_hours).toFixed(2),
-                        maxHours:   n(det.max_hours).toFixed(2),
-                      }));
-                      setDetailRows(rows);
-                      setModalInitial(getDetailInitials(rows));
-                      setShowDetailModal(true);
-                    }).catch(() => {
-                      setModalInitial(getDetailInitials([]));
-                      setShowDetailModal(true);
-                    });
-                  }}
-                  title="Double-click to edit detail"
-                >
-                  <div style={styles.discountBadge}>{d.discount_code}</div>
-                  <span style={styles.discountDesc}>{d.discount_name}</span>
-                  <div style={styles.discountRight}>
-                    <span style={styles.percentBadge}>{d.details[0]?.discount_amount ?? 0}%</span>
-                    <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); removeDiscount(d.discount_code); }}>
-                      <Trash2 size={14} color="#ef4444" />
-                    </button>
+              {discounts.map(d => {
+                const isExpanded = expandedCode === d.discount_code;
+                return (
+                <React.Fragment key={d.discount_code}>
+                  <div
+                    style={{ ...styles.discountCard, ...(selectedCode === d.discount_code ? styles.discountCardSelected : {}) }}
+                    onClick={() => {
+                      setSelectedCode(d.discount_code);
+                      loadDiscountDetails(d);
+                    }}
+                    onDoubleClick={() => {
+                      loadDiscountDetails(d).then(rows => {
+                        setModalInitial(getDetailInitials(rows));
+                        setShowDetailModal(true);
+                      });
+                    }}
+                    title="Click to load — double-click to edit detail"
+                  >
+                    <div style={styles.discountBadge}>{d.discount_code}</div>
+                    <span style={styles.discountDesc}>{d.discount_name}</span>
+                    <div style={styles.discountRight}>
+                      <button
+                        style={styles.deleteBtn}
+                        onClick={e => { e.stopPropagation(); setExpandedCode(isExpanded ? null : d.discount_code); }}
+                        title={isExpanded ? 'Collapse' : 'Expand NAGS prefix detail'}
+                      >
+                        {isExpanded ? <ChevronUp size={14} color="#16a34a" /> : <ChevronDown size={14} color="#16a34a" />}
+                      </button>
+                      <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); removeDiscount(d.discount_code); }}>
+                        <Trash2 size={14} color="#ef4444" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+
+                  {isExpanded && (
+                    <div style={styles.tableWrapper}>
+                      <table style={styles.table}>
+                        <thead>
+                          <tr style={styles.tableHead}>
+                            {['NAGS Prefix', 'Part Type', 'Flat/Hourly', 'Discount', 'Labor', 'Min Hours', 'Max Hours'].map(h => (
+                              <th key={h} style={styles.th}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {getExpandedRows(d).map(row => (
+                            <tr key={row.nagsPrefix} style={styles.tr}>
+                              <td style={styles.td}>{row.nagsPrefix}</td>
+                              <td style={styles.td}>{row.partType}</td>
+                              <td style={styles.td}>{row.flatHourly}</td>
+                              <td style={styles.td}>{row.discount}</td>
+                              <td style={styles.td}>{row.labor}</td>
+                              <td style={styles.td}>{row.minHours}</td>
+                              <td style={styles.td}>{row.maxHours}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </React.Fragment>
+              );})}
             </div>
           </div>
 
@@ -621,9 +646,6 @@ const styles: Record<string, React.CSSProperties> = {
   tr:           { borderBottom: '1px solid #f3f4f6' },
   td:           { padding: '8px 10px' },
   emptyRow:     { padding: '20px', textAlign: 'center' as const, fontSize: 13, color: '#9ca3af' },
-  cellInput:    { width: '100%', padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 5, fontSize: 12, color: '#111827', outline: 'none' },
-  cellSelect:   { width: '100%', padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 5, fontSize: 12, color: '#111827', background: '#fff', outline: 'none', cursor: 'pointer' },
-  deleteRowBtn: { background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 4 },
   btnOutline:   { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#fff', border: '1px solid #d1d5db', borderRadius: 7, fontSize: 13, fontWeight: 500, color: '#374151', cursor: 'pointer' },
 };
 

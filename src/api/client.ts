@@ -34,6 +34,7 @@ export const api = {
   getDiscounts: () => request<Discount[]>('/discounts'),
   getDiscountDetails: (code: string) =>
     request<DiscountDetail[]>(`/discounts/${encodeURIComponent(code)}/details`),
+  getDiscountParts: () => request<NagsPrefixPart[]>('/discounts/parts'),
   createDiscount: (data: Omit<Discount, 'details'> & { details?: Omit<DiscountDetail, 'discount_code'>[] }) =>
     request<{ discount_code: string }>('/discounts', { method: 'POST', body: JSON.stringify(data) }),
   updateDiscount: (code: string, data: Omit<Discount, 'discount_code' | 'details'> & { details?: Omit<DiscountDetail, 'discount_code'>[] }) =>
@@ -88,6 +89,16 @@ export const api = {
     return request<NagsHwPart[]>(`/hardware-by-vehicle?${params}`);
   },
   getHardwareParts: () => request<NagsHwPart[]>('/hardware-parts'),
+
+  // ── Schedule ──────────────────────────────────────────────
+  getSchedule: (date: string) =>
+    request<ScheduleBookingRow[]>(`/schedule?date=${encodeURIComponent(date)}`),
+  saveScheduleBooking: (data: {
+    date: string; slot: string; slotIndex: 0 | 1;
+    customerName: string; phone: string; vin: string; notes: string;
+  }) => request<{ success: boolean }>('/schedule', { method: 'PUT', body: JSON.stringify(data) }),
+  deleteScheduleBooking: (data: { date: string; slot: string; slotIndex: 0 | 1 }) =>
+    request<{ success: boolean }>('/schedule', { method: 'DELETE', body: JSON.stringify(data) }),
 };
 
 // ── Types ─────────────────────────────────────────────────────
@@ -126,6 +137,11 @@ export interface Discount {
   edi_flag: string;
   edi_format: string;
   details: DiscountDetail[];
+}
+
+export interface NagsPrefixPart {
+  nags_prefix: string;
+  part_type: string;
 }
 
 export interface DiscountDetail {
@@ -230,6 +246,7 @@ export interface HardwareForGlass {
   part_no: string;
   color: string;
   type: string;
+  list_price: number;
 }
 
 export interface ColorPriceTier {
@@ -248,6 +265,15 @@ export interface NagsHwPart {
   description: string;
   quantity?: number;
   list_price: number;
+}
+
+export interface ScheduleBookingRow {
+  slot_time: string;
+  slot_index: 0 | 1;
+  customer_name: string;
+  phone: string;
+  vin: string;
+  notes: string;
 }
 
 // Legacy alias kept for components still using the old type name

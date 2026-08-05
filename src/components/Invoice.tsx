@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, X, Plus, Trash2, Calendar, Search, ArrowLeft, ReceiptText, ChevronDown } from 'lucide-react';
 import { api, type Customer, type BusinessType, type VehicleMake, type Discount } from '../api/client';
-import { InvoiceRecord } from '../types';
+import { InvoiceRecord, InvoicePrefill } from '../types';
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; dot: string }> = {
   Paid:    { bg: '#f0fdf4', color: '#16a34a', dot: '#16a34a' },
@@ -10,7 +10,7 @@ const STATUS_STYLE: Record<string, { bg: string; color: string; dot: string }> =
   Draft:   { bg: '#f8fafc', color: '#64748b', dot: '#94a3b8' },
 };
 
-const MOCK_INVOICES: InvoiceRecord[] = [
+export const MOCK_INVOICES: InvoiceRecord[] = [
   { id: 18, date: '05/29/26', billTo: 'TEST SHOP',  soldTo: '',            installDate: '',        status: 'Saved',   amount: 438.29 },
   { id: 17, date: '05/27/26', billTo: '',            soldTo: '',            installDate: '',        status: 'Draft',   amount: 0      },
   { id: 16, date: '05/27/26', billTo: '',            soldTo: '',            installDate: '',        status: 'Draft',   amount: 0      },
@@ -81,8 +81,9 @@ const InvoiceListView: React.FC<{
   onNew: () => void;
   onOpen: (id: number) => void;
   onDelete: (id: number) => void;
+  onSaveInvoice?: (record: InvoiceRecord) => void;
   onClose: () => void;
-}> = ({ invoices, onNew, onOpen, onDelete, onClose }) => {
+}> = ({ invoices, onNew, onOpen, onDelete, onSaveInvoice, onClose }) => {
   const [liveSearch,    setLiveSearch]    = useState('');
   const [search,        setSearch]        = useState('');
   const [sortByInstall, setSortByInstall] = useState(false);
@@ -101,6 +102,8 @@ const InvoiceListView: React.FC<{
   const pickStatus = (id: number, s: InvoiceRecord['status']) => {
     setStatusMap(prev => ({ ...prev, [id]: s }));
     setStatusDrop(null);
+    const inv = invoices.find(i => i.id === id);
+    if (inv) onSaveInvoice?.({ ...inv, status: s });
   };
 
   const doSearch  = () => setSearch(liveSearch);
@@ -345,9 +348,10 @@ interface Props {
   onSaveInvoice?: (record: InvoiceRecord) => void;
   onDeleteInvoice?: (id: number) => void;
   nextInvoiceId?: number;
+  prefill?: InvoicePrefill;
 }
 
-const Invoice: React.FC<Props> = ({ onClose, startView = 'list', invoices = [], onSaveInvoice, onDeleteInvoice, nextInvoiceId = 19 }) => {
+const Invoice: React.FC<Props> = ({ onClose, startView = 'list', invoices = [], onSaveInvoice, onDeleteInvoice, nextInvoiceId = 19, prefill }) => {
   /* ── Reference data from MySQL ── */
   const [customers,    setCustomers]    = useState<Customer[]>([]);
   const [businessTypes, setBusinessTypes] = useState<BusinessType[]>([]);
@@ -390,25 +394,32 @@ const Invoice: React.FC<Props> = ({ onClose, startView = 'list', invoices = [], 
   const [policyPo,    setPolicyPo]    = useState('');
 
   /* ── Claim ── */
-  const [year,        setYear]        = useState('2018');
-  const [make,        setMake]        = useState('HYUNDAI');
-  const [model,       setModel]       = useState('ELANTRA 4DSD');
+  const [year,        setYear]        = useState(prefill?.year ?? '2018');
+  const [make,        setMake]        = useState(prefill?.make ?? 'HYUNDAI');
+  const [model,       setModel]       = useState(prefill?.model ?? 'ELANTRA 4DSD');
   const [color,       setColor]       = useState('');
   const [licenseNum,  setLicenseNum]  = useState('');
-  const [vin,         setVin]         = useState('');
+  const [vin,         setVin]         = useState(prefill?.vin ?? '');
   const [agency,      setAgency]      = useState('TEST SHOP');
   const [lossDate,    setLossDate]    = useState('');
 
   /* ── Line Items ── */
-  const [lines, setLines] = useState<LineItem[]>([
-    { id: 1, partNumber: 'FW04353GTY', description: 'WINDSHIELD', type: 'WINDSHIELD', qty: '1.00', list: '620.95', sell: '310.48' },
-    { id: 2, partNumber: 'GGG FW4352', description: 'MOULDING',   type: 'MISC',       qty: '1.00', list: '60.34',  sell: '60.34'  },
-    ...Array.from({ length: BLANK_ROWS - 2 }, (_, i) => mkLine(i + 3)),
-  ]);
+  const [lines, setLines] = useState<LineItem[]>(() => {
+    if (prefill?.lines?.length) {
+      const real = prefill.lines.map((l, i) => ({ id: i + 1, ...l }));
+      const blanks = Array.from({ length: Math.max(BLANK_ROWS - real.length, 1) }, (_, i) => mkLine(real.length + i + 1));
+      return [...real, ...blanks];
+    }
+    return [
+      { id: 1, partNumber: 'FW04353GTY', description: 'WINDSHIELD', type: 'WINDSHIELD', qty: '1.00', list: '620.95', sell: '310.48' },
+      { id: 2, partNumber: 'GGG FW4352', description: 'MOULDING',   type: 'MISC',       qty: '1.00', list: '60.34',  sell: '60.34'  },
+      ...Array.from({ length: BLANK_ROWS - 2 }, (_, i) => mkLine(i + 3)),
+    ];
+  });
 
   /* ── Totals / Payment ── */
-  const [labor,      setLabor]      = useState('100.00');
-  const [tax,        setTax]        = useState('27.81');
+  const [labor,      setLabor]      = useState(prefill?.labor ?? '100.00');
+  const [tax,        setTax]        = useState(prefill?.tax ?? '27.81');
   const [deductible, setDeductible] = useState('0.00');
   const [notes,      setNotes]      = useState('');
   const [payCash,    setPayCash]    = useState(false);
@@ -488,7 +499,7 @@ const Invoice: React.FC<Props> = ({ onClose, startView = 'list', invoices = [], 
     const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
     const record: InvoiceRecord = {
       id:          activeInvoice?.id ?? nextInvoiceId,
-      date:        today,
+      date:        activeInvoice?.date ?? today,
       billTo:      billName,
       soldTo:      soldName,
       installDate: lossDate || '',
@@ -499,7 +510,8 @@ const Invoice: React.FC<Props> = ({ onClose, startView = 'list', invoices = [], 
     setView('list');
   };
 
-  const allInvoices = [...invoices, ...MOCK_INVOICES];
+  // `invoices` already carries the merged real+demo list (and reflects deletions) — App.tsx is the single source of truth for that merge.
+  const allInvoices = invoices;
 
   if (view === 'list') {
     return (
@@ -508,6 +520,7 @@ const Invoice: React.FC<Props> = ({ onClose, startView = 'list', invoices = [], 
         onNew={() => { setActiveInvoice(null); setView('editor'); }}
         onOpen={(id) => { setActiveInvoice(allInvoices.find(r => r.id === id) ?? null); setView('editor'); }}
         onDelete={(id) => { onDeleteInvoice?.(id); }}
+        onSaveInvoice={onSaveInvoice}
         onClose={onClose}
       />
     );

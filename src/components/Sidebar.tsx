@@ -5,7 +5,7 @@ import {
   List, TrendingUp, Tag, Building2,
   FileText, Send, Clock,
   DollarSign, BarChart2, Calendar, CheckSquare,
-  Car, Hash, Search, BookOpen, Package, ReceiptText,
+  Car, Hash, Search, Package, ReceiptText,
 } from 'lucide-react';
 
 interface SubItem {
@@ -82,7 +82,6 @@ const menuSections: MenuSection[] = [
       { id: 'nags-vehicle', label: 'NAGS by Vehicle', icon: <Car size={15} /> },
       { id: 'nags-part', label: 'NAGS by Part #', icon: <Hash size={15} /> },
       { id: 'nags-vin', label: 'NAGS by VIN', icon: <Search size={15} /> },
-      { id: 'saved-quotes', label: 'Saved Quotes', icon: <BookOpen size={15} /> },
     ],
   },
   {

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { CalendarDays, X, ChevronLeft, ChevronRight, Check, Trash2 } from 'lucide-react';
+import { api } from '../api/client';
 
 interface Appointment {
   customerName: string;
@@ -26,17 +27,13 @@ const generateSlots = (): string[] => {
 };
 
 const TIME_SLOTS = generateSlots();
-const todayKey   = () => new Date().toDateString();
 
-const SEED: Record<string, DayMap> = {
-  [todayKey()]: {
-    '9:00 AM':  [
-      { customerName: 'APEX GLASS WORKS',   phone: '555-0101', vin: '1HGCM82633A123456', notes: '' },
-      { customerName: 'BEACON AUTO GLASS',  phone: '555-0202', vin: '',                  notes: 'Bring old molding for reference' },
-    ],
-    '11:00 AM': [{ customerName: 'CENTRAL COLLISION',  phone: '555-0303', vin: '',                  notes: '' }, null],
-    '2:00 PM':  [{ customerName: 'DIAMOND AUTO GLASS', phone: '555-0404', vin: '2T3RF4DV8FW123789', notes: 'Rear windshield crack — urgent' }, null],
-  },
+// Local calendar date → 'YYYY-MM-DD', without the UTC shift toISOString() would introduce.
+const toIsoDate = (d: Date) => {
+  const y   = d.getFullYear();
+  const mo  = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${day}`;
 };
 
 interface FormState { customerName: string; phone: string; vin: string; notes: string; }
@@ -271,11 +268,28 @@ const BookingDialog: React.FC<{
 const Schedule: React.FC<Props> = ({ onClose }) => {
   const [date,      setDate]      = useState(new Date());
   const [showCal,   setShowCal]   = useState(false);
-  const [schedules, setSchedules] = useState<Record<string, DayMap>>(SEED);
+  const [daySlots,  setDaySlots]  = useState<DayMap>({});
   const [modal,     setModal]     = useState<ModalState | null>(null);
 
-  const dk       = date.toDateString();
-  const daySlots = schedules[dk] ?? {};
+  const dk = toIsoDate(date);
+
+  // Load this day's bookings from the backend whenever the selected date changes.
+  useEffect(() => {
+    let cancelled = false;
+    api.getSchedule(dk)
+      .then(rows => {
+        if (cancelled) return;
+        const map: DayMap = {};
+        for (const r of rows) {
+          const pair: SlotPair = map[r.slot_time] ?? [null, null];
+          pair[r.slot_index] = { customerName: r.customer_name, phone: r.phone, vin: r.vin, notes: r.notes };
+          map[r.slot_time] = pair;
+        }
+        setDaySlots(map);
+      })
+      .catch(() => { if (!cancelled) setDaySlots({}); });
+    return () => { cancelled = true; };
+  }, [dk]);
 
   const prevDay = () => { const d = new Date(date); d.setDate(d.getDate() - 1); setDate(d); };
   const nextDay = () => { const d = new Date(date); d.setDate(d.getDate() + 1); setDate(d); };
@@ -292,25 +306,30 @@ const Schedule: React.FC<Props> = ({ onClose }) => {
       vin:   form.vin.trim(),
       notes: form.notes.trim(),
     };
-    setSchedules(prev => {
-      const existing: SlotPair = [...(prev[dk]?.[slot] ?? [null, null])] as SlotPair;
-      existing[index] = appt;
-      return { ...prev, [dk]: { ...(prev[dk] ?? {}), [slot]: existing } };
+    setDaySlots(prev => {
+      const pair: SlotPair = [...(prev[slot] ?? [null, null])] as SlotPair;
+      pair[index] = appt;
+      return { ...prev, [slot]: pair };
     });
+    api.saveScheduleBooking({
+      date: dk, slot, slotIndex: index,
+      customerName: appt.customerName, phone: appt.phone, vin: appt.vin, notes: appt.notes,
+    }).catch(() => {});
     closeModal();
   };
 
   const deleteBooking = () => {
     if (!modal) return;
     const { slot, index } = modal;
-    setSchedules(prev => {
-      const pair: SlotPair = [...(prev[dk]?.[slot] ?? [null, null])] as SlotPair;
+    setDaySlots(prev => {
+      const pair: SlotPair = [...(prev[slot] ?? [null, null])] as SlotPair;
       pair[index] = null;
-      const dayData = { ...(prev[dk] ?? {}) };
-      if (!pair[0] && !pair[1]) delete dayData[slot];
-      else dayData[slot] = pair;
-      return { ...prev, [dk]: dayData };
+      const next = { ...prev };
+      if (!pair[0] && !pair[1]) delete next[slot];
+      else next[slot] = pair;
+      return next;
     });
+    api.deleteScheduleBooking({ date: dk, slot, slotIndex: index }).catch(() => {});
     closeModal();
   };
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, X, Search, Trash2, Plus, Check } from 'lucide-react';
-import { api, type Customer } from '../api/client';
+import { api, type Customer, type BusinessType } from '../api/client';
 
 const ROUTES = ['Route A', 'Route B', 'Route C', 'Route D', 'Route E'];
 
@@ -20,9 +20,11 @@ const CustomerList: React.FC<Props> = ({ onClose }) => {
   const [showInsert, setShowInsert] = useState(false);
   const [form, setForm]             = useState<InsertForm>(emptyForm());
   const [errors, setErrors]         = useState<Partial<InsertForm>>({});
+  const [businessTypes, setBusinessTypes] = useState<BusinessType[]>([]);
 
   useEffect(() => {
     api.getCustomers().then(setCustomers).catch(() => {});
+    api.getBusinessTypes().then(setBusinessTypes).catch(() => {});
   }, []);
 
   const search = (q: string) => {
@@ -183,7 +185,7 @@ const CustomerList: React.FC<Props> = ({ onClose }) => {
                 value={form.name} onChange={set('name')} />
 
               <DlgField label="Company" required error={errors.company}
-                placeholder="e.g. GEICO INSURANCE"
+                placeholder="— Select business type —" type="select" options={businessTypes.map(b => b.name)}
                 value={form.company} onChange={set('company')} />
 
               <div style={dlg.row}>
@@ -225,11 +227,12 @@ const DlgField: React.FC<{
     </label>
     {type === 'select' ? (
       <select
-        style={{ ...dlg.input, background: '#fff' }}
+        style={{ ...dlg.input, borderColor: error ? '#fca5a5' : '#d1d5db', background: error ? '#fff5f5' : '#fff' }}
         value={value}
         onChange={e => onChange(e.target.value)}
       >
-        {options.map(o => <option key={o}>{o}</option>)}
+        {placeholder && <option value="">{placeholder}</option>}
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     ) : (
       <input

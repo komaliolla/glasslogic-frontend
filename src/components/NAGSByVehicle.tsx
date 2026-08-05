@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Car, X, Search, ChevronRight, Loader, Hash } from 'lucide-react';
 import { api, type VehicleMake, type VehicleModel, type BodyStyle, type NagsGlassPart, type GlassPricing, type HardwareForGlass, type Discount } from '../api/client';
 import { formatPrice } from '../test_data/db';
+import type { InvoicePrefill } from '../types';
 
-interface Props { onClose: () => void; onTurnIntoInvoice: () => void; }
+interface Props { onClose: () => void; onTurnIntoInvoice: (prefill: InvoicePrefill) => void; }
 
 const NAGSByVehicle: React.FC<Props> = ({ onClose, onTurnIntoInvoice }) => {
   /* ── Step state ── */
@@ -15,8 +16,7 @@ const NAGSByVehicle: React.FC<Props> = ({ onClose, onTurnIntoInvoice }) => {
   const [selectedGlass, setSelectedGlass] = useState<number | null>(null);
   const [selectedColor, setSelectedColor] = useState<number | null>(null);
   const [selectedHw,    setSelectedHw]    = useState<number | null>(null);
-  const [discountFilter,   setDiscountFilter]   = useState('');
-  const [selectedDiscount, setSelectedDiscount] = useState<number | null>(null);
+  const [selectedDiscount, setSelectedDiscount] = useState<string | null>(null);
   const [showQuoteModal,   setShowQuoteModal]   = useState(false);
 
   /* ── VIN decode ── */
@@ -61,13 +61,13 @@ const NAGSByVehicle: React.FC<Props> = ({ onClose, onTurnIntoInvoice }) => {
   useEffect(() => { if (selectedGlass !== null)  scrollTo(colorRef);   }, [selectedGlass]);
   useEffect(() => { if (selectedColor !== null)  scrollTo(hwRef);      }, [selectedColor]);
   useEffect(() => {
-    if (selectedHw !== null) { scrollTo(discountRef); setSelectedDiscount(0); }
-  }, [selectedHw]);
+    if (selectedHw !== null) { scrollTo(discountRef); setSelectedDiscount(discounts[0]?.discount_code ?? null); }
+  }, [selectedHw]); // eslint-disable-line react-hooks/exhaustive-deps
   // When hardware finishes loading with no results, advance to discount step
   useEffect(() => {
     if (hwLoaded && hwParts.length === 0 && selectedColor !== null) {
       scrollTo(discountRef);
-      setSelectedDiscount(0);
+      setSelectedDiscount(discounts[0]?.discount_code ?? null);
     }
   }, [hwLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -311,11 +311,7 @@ const NAGSByVehicle: React.FC<Props> = ({ onClose, onTurnIntoInvoice }) => {
   const selectedModel = models.find(m => String(m.id) === modelId);
 
 
-  const filteredDiscounts = discounts.filter((d: Discount) =>
-    !discountFilter ||
-    d.discount_code.toLowerCase().includes(discountFilter.toLowerCase()) ||
-    d.discount_name.toLowerCase().includes(discountFilter.toLowerCase())
-  );
+  const selectedDiscountObj = discounts.find(d => d.discount_code === selectedDiscount);
 
   const hwStepComplete = selectedHw !== null || (hwLoaded && hwParts.length === 0 && selectedColor !== null);
 
@@ -610,45 +606,21 @@ const NAGSByVehicle: React.FC<Props> = ({ onClose, onTurnIntoInvoice }) => {
             <div style={styles.discountRow}>
               <div style={styles.discountBox}>
                 <select
-                  value={discountFilter}
-                  onChange={e => { setDiscountFilter(e.target.value); setSelectedDiscount(null); }}
+                  value={selectedDiscount ?? ''}
+                  onChange={e => setSelectedDiscount(e.target.value || null)}
                   style={styles.discountSelect}
                 >
-                  <option value="">— All Discounts —</option>
+                  <option value="">— Select a discount —</option>
                   {discounts.map((d: Discount) => (
-                    <option key={d.discount_code} value={d.discount_code}>{d.discount_code}</option>
+                    <option key={d.discount_code} value={d.discount_code}>{d.discount_code} — {d.discount_name}</option>
                   ))}
                 </select>
-                <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-                  <table style={{ ...styles.table, minWidth: 0 }}>
-                    <thead>
-                      <tr style={styles.discountHead}>
-                        <th style={styles.discountTh}>Code</th>
-                        <th style={styles.discountTh}>Discount Name</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredDiscounts.length === 0 ? (
-                        <tr><td colSpan={2} style={styles.empty}>No discounts found</td></tr>
-                      ) : filteredDiscounts.map((d: Discount, i: number) => (
-                        <tr
-                          key={d.discount_code}
-                          style={{ ...styles.tr, background: selectedDiscount === i ? '#dcfce7' : '#fff', cursor: 'pointer' }}
-                          onClick={() => setSelectedDiscount(i)}
-                        >
-                          <td style={styles.discountTd}><span style={styles.partNo}>{d.discount_code}</span></td>
-                          <td style={styles.discountTd}>{d.discount_name}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
               </div>
               <div style={styles.actionBtns}>
                 <button style={styles.btnRepair}>Repair</button>
                 <button
-                  style={{ ...styles.btnQuote, opacity: selectedDiscount !== null ? 1 : 0.45 }}
-                  disabled={selectedDiscount === null}
+                  style={{ ...styles.btnQuote, opacity: selectedDiscount ? 1 : 0.45 }}
+                  disabled={!selectedDiscount}
                   onClick={() => setShowQuoteModal(true)}
                 >
                   Quote
@@ -663,10 +635,10 @@ const NAGSByVehicle: React.FC<Props> = ({ onClose, onTurnIntoInvoice }) => {
 
       {/* ── Quote Modal ── */}
       {showQuoteModal &&
-       selectedGlass    !== null &&
-       selectedColor    !== null &&
-       hwStepComplete   &&
-       selectedDiscount !== null && (
+       selectedGlass      !== null &&
+       selectedColor      !== null &&
+       hwStepComplete     &&
+       selectedDiscountObj && (
         <QuoteModal
           year={year}
           make={selectedMake?.name ?? ''}
@@ -674,7 +646,7 @@ const NAGSByVehicle: React.FC<Props> = ({ onClose, onTurnIntoInvoice }) => {
           glass={glassParts[selectedGlass]}
           glassColorPrice={glassColors[selectedColor]?.price ?? glassParts[selectedGlass].list_price}
           hardware={selectedHw !== null ? hwParts[selectedHw] : undefined}
-          discount={filteredDiscounts[selectedDiscount]}
+          discount={selectedDiscountObj}
           onClose={() => setShowQuoteModal(false)}
           onTurnIntoInvoice={onTurnIntoInvoice}
         />
@@ -768,7 +740,7 @@ const QuoteModal: React.FC<{
   hardware?: HardwareForGlass;
   discount: Discount;
   onClose: () => void;
-  onTurnIntoInvoice: () => void;
+  onTurnIntoInvoice: (prefill: InvoicePrefill) => void;
 }> = ({ year, make, model, glass, glassColorPrice, hardware, discount, onClose, onTurnIntoInvoice }) => {
   const [quotedCustomer, setQuotedCustomer] = useState('');
   const [taxRate,        setTaxRate]        = useState(6);
@@ -791,8 +763,21 @@ const QuoteModal: React.FC<{
       ? `LABOR (${glass.labor_hours} hrs @ $${laborRate}/hr)`
       : 'LABOR (flat rate)'
     : 'LABOR';
-  const hwPrice  = 0;
-  const subTotal = glassSellPrice + hwPrice + labor;
+  const hwListPrice = hardware?.list_price ?? 0;
+  const hwDetail = hardware
+    ? discount.details.find(d => hardware.part_no.startsWith(d.nags_prefix))
+    : undefined;
+  const hwDiscountPct = hwDetail?.discount_amount2 ?? hwDetail?.discount_amount ?? 0;
+  const hwSellPrice = hardware ? hwListPrice * (1 - hwDiscountPct / 100) : 0;
+  const hwPrice  = hwSellPrice;
+
+  const isWindshield = glass.type === 'Windshield';
+  const showMat = isWindshield && discount.material_charge === 'Y';
+  const showKit = isWindshield && discount.kit_charge === 'Y';
+  const matAmount = showMat ? discount.material_amount : 0;
+  const kitAmount = showKit ? discount.kit_amount : 0;
+
+  const subTotal = glassSellPrice + hwPrice + labor + matAmount + kitAmount;
   const tax      = subTotal * (taxRate / 100);
   const total    = subTotal + tax;
 
@@ -809,6 +794,37 @@ const QuoteModal: React.FC<{
   const vehicleTitle = [year, make, model].filter(Boolean).join(' ');
   const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
   const fmt = (n: number) => `$${n.toFixed(2)}`;
+
+  const buildInvoicePrefill = (): InvoicePrefill => {
+    const n2 = (n: number) => n.toFixed(2);
+    const lines: InvoicePrefill['lines'] = [
+      {
+        partNumber: glass.part_no,
+        description: glass.description,
+        type: glass.type.toUpperCase(),
+        qty: '1.00',
+        list: n2(glassListPrice),
+        sell: n2(glassSellPrice),
+      },
+    ];
+    if (showMat) {
+      lines.push({ partNumber: 'MAT', description: 'BASE KIT/MAT. CHARGE', type: 'MISC', qty: '1.00', list: '', sell: n2(matAmount) });
+    }
+    if (showKit) {
+      lines.push({ partNumber: 'KIT', description: 'URETHANE(SEALANT)', type: 'KIT', qty: '1.00', list: '', sell: n2(kitAmount) });
+    }
+    if (hardware) {
+      lines.push({
+        partNumber: hardware.part_no,
+        description: `${hardware.type}${hardware.color ? ` — ${hardware.color}` : ''}`,
+        type: 'MISC',
+        qty: '1.00',
+        list: n2(hwListPrice),
+        sell: n2(hwSellPrice),
+      });
+    }
+    return { year, make, model, lines, labor: n2(labor), tax: n2(tax) };
+  };
 
   return (
     <div style={qm.overlay}>
@@ -868,14 +884,34 @@ const QuoteModal: React.FC<{
                   <td style={qm.docTdR}>{fmt(glassListPrice)}</td>
                   <td style={{ ...qm.docTdR, ...qm.green }}>{fmt(glassSellPrice)}</td>
                 </tr>
+                {showMat && (
+                  <tr style={qm.docRow}>
+                    <td style={qm.docTd}><span style={qm.mono}>MAT</span></td>
+                    <td style={qm.docTd}>BASE KIT/MAT. CHARGE</td>
+                    <td style={qm.docTd}></td>
+                    <td style={qm.docTd}></td>
+                    <td style={qm.docTdR}></td>
+                    <td style={qm.docTdR}></td>
+                  </tr>
+                )}
+                {showKit && (
+                  <tr style={qm.docRow}>
+                    <td style={qm.docTd}><span style={qm.mono}>KIT</span></td>
+                    <td style={qm.docTd}>URETHANE(SEALANT)</td>
+                    <td style={qm.docTd}></td>
+                    <td style={qm.docTd}></td>
+                    <td style={qm.docTdR}></td>
+                    <td style={qm.docTdR}></td>
+                  </tr>
+                )}
                 {hardware && (
                   <tr style={qm.docRow}>
                     <td style={qm.docTd}><span style={qm.mono}>{hardware.part_no}</span></td>
                     <td style={qm.docTd}>{hardware.type}{hardware.color ? ` — ${hardware.color}` : ''}</td>
                     <td style={qm.docTd}>1.00</td>
                     <td style={qm.docTd}></td>
-                    <td style={qm.docTdR}>—</td>
-                    <td style={{ ...qm.docTdR, ...qm.green }}>—</td>
+                    <td style={qm.docTdR}>{fmt(hwListPrice)}</td>
+                    <td style={{ ...qm.docTdR, ...qm.green }}>{fmt(hwSellPrice)}</td>
                   </tr>
                 )}
               </tbody>
@@ -923,7 +959,7 @@ const QuoteModal: React.FC<{
 
         <div style={qm.btnGrid}>
           <button style={qm.btnSecondary}>Override NAGS Discount</button>
-          <button style={qm.btnPrimary} onClick={onTurnIntoInvoice}>Turn Into Invoice</button>
+          <button style={qm.btnPrimary} onClick={() => onTurnIntoInvoice(buildInvoicePrefill())}>Turn Into Invoice</button>
           <button style={qm.btnSecondary}>Add Another Line Item</button>
           <button style={qm.btnSecondary}>Override Quote Numbers</button>
           <button style={qm.btnPrimary}>Save Quote</button>
