@@ -9,15 +9,36 @@ interface Props {
   onClose: () => void;
 }
 
-interface DepoRowForm { paidDate: string; checkNumber: string; checkAmount: string; adjustment: string; }
+interface DepoForm {
+  date: string; name: string; totalDue: string;
+  paidDate: string; checkNumber: string; checkAmount: string; adjustment: string;
+}
+const emptyDepoForm = (): DepoForm => ({ date: '', name: '', totalDue: '', paidDate: '', checkNumber: '', checkAmount: '', adjustment: '' });
+
+// The rest of the app stores/displays dates as "MM/DD/YY" (see Invoice.tsx), but a
+// native <input type="date"> only understands ISO "YYYY-MM-DD" — convert both ways
+// so the calendar picker works while the stored/displayed format stays consistent.
+const mdyToIso = (mdy: string): string => {
+  const m = mdy.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+  if (!m) return '';
+  const [, mm, dd, yy] = m;
+  return `20${yy}-${mm}-${dd}`;
+};
+const isoToMdy = (iso: string): string => {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  const [, yyyy, mm, dd] = m;
+  return `${mm}/${dd}/${yyyy.slice(2)}`;
+};
 
 const PaidInvoices: React.FC<Props> = ({ invoices, onUpdateInvoice, onDeleteInvoice, onClose }) => {
   const paid = invoices.filter(i => i.status === 'Paid');
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [showDepo, setShowDepo] = useState(false);
-  const [modalSelected, setModalSelected] = useState<Set<number>>(new Set());
-  const [rowEdits, setRowEdits] = useState<Record<number, DepoRowForm>>({});
+  const [depoInvoiceId, setDepoInvoiceId] = useState('');
+  const [depoForm, setDepoForm] = useState<DepoForm>(emptyDepoForm());
+  const [depoError, setDepoError] = useState('');
 
   const toggleRow = (id: number) =>
     setSelected(prev => {
@@ -34,56 +55,72 @@ const PaidInvoices: React.FC<Props> = ({ invoices, onUpdateInvoice, onDeleteInvo
     setSelected(new Set());
   };
 
-  const toggleModalRow = (id: number) =>
-    setModalSelected(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  const findByTypedId = (idStr: string) => {
+    const trimmed = idStr.trim();
+    if (!trimmed) return null;
+    return invoices.find(i => String(i.id) === trimmed) ?? null;
+  };
 
-  // Opens with no precondition — any rows already checked on the main table
-  // carry over as a starting point, but you can pick invoices here regardless.
-  const openDepo = () => {
-    const init: Record<number, DepoRowForm> = {};
-    for (const inv of paid) {
-      init[inv.id] = {
+  const formFromInvoice = (inv: InvoiceRecord | null): DepoForm => inv
+    ? {
+        date:        inv.date ? mdyToIso(inv.date) : '',
+        name:        inv.soldTo ?? '',
+        totalDue:    inv.amount ? String(inv.amount) : '',
         paidDate:    inv.paidDate ?? '',
         checkNumber: inv.checkNumber ?? '',
         checkAmount: inv.checkAmount ? String(inv.checkAmount) : '',
         adjustment:  inv.adjustment ? String(inv.adjustment) : '',
-      };
-    }
-    setRowEdits(init);
-    setModalSelected(new Set(selected));
+      }
+    : emptyDepoForm();
+
+  // Pre-fills the invoice number if exactly one row was already checked on the main table.
+  const openDepo = () => {
+    const preId = selected.size === 1 ? String([...selected][0]) : '';
+    setDepoInvoiceId(preId);
+    setDepoForm(formFromInvoice(preId === '' ? null : findByTypedId(preId)));
+    setDepoError('');
     setShowDepo(true);
   };
 
-  const updateRowEdit = (id: number, field: keyof DepoRowForm, value: string) =>
-    setRowEdits(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+  // Looks up any existing invoice (paid or not) by the typed number so editing
+  // an existing record's date/name/total due doesn't clobber unrelated fields —
+  // if nothing matches, the fields just stay whatever the user typed.
+  const handleInvoiceIdChange = (idStr: string) => {
+    setDepoInvoiceId(idStr);
+    setDepoError('');
+    const inv = findByTypedId(idStr);
+    if (inv) setDepoForm(formFromInvoice(inv));
+  };
 
-  const applyDepo = () => {
-    for (const inv of paid) {
-      if (!modalSelected.has(inv.id)) continue;
-      const edit = rowEdits[inv.id];
-      if (!edit) continue;
-      onUpdateInvoice({
-        ...inv,
-        paidDate:    edit.paidDate,
-        checkNumber: edit.checkNumber.trim(),
-        checkAmount: parseFloat(edit.checkAmount) || 0,
-        adjustment:  parseFloat(edit.adjustment) || 0,
-      });
-    }
+  const saveDepo = () => {
+    const trimmedId = depoInvoiceId.trim();
+    if (!trimmedId) { setDepoError('Enter an invoice number.'); return; }
+    const id = Number(trimmedId);
+    if (!Number.isFinite(id)) { setDepoError('Invoice # must be a number.'); return; }
+
+    const existing = findByTypedId(trimmedId);
+    onUpdateInvoice({
+      id,
+      date:        isoToMdy(depoForm.date) || depoForm.date,
+      billTo:      existing?.billTo ?? '',
+      soldTo:      depoForm.name,
+      installDate: existing?.installDate ?? '',
+      status:      'Paid',
+      amount:      parseFloat(depoForm.totalDue) || 0,
+      paidDate:    depoForm.paidDate,
+      checkNumber: depoForm.checkNumber.trim(),
+      checkAmount: parseFloat(depoForm.checkAmount) || 0,
+      adjustment:  parseFloat(depoForm.adjustment) || 0,
+    });
     setShowDepo(false);
     setSelected(new Set());
-    setModalSelected(new Set());
   };
 
   const setAdjustment = (inv: InvoiceRecord, value: string) => {
     onUpdateInvoice({ ...inv, adjustment: parseFloat(value) || 0 });
   };
 
-  const totalDue        = paid.reduce((s, i) => s + (i.amount || 0), 0);
+  const totalDue         = paid.reduce((s, i) => s + (i.amount || 0), 0);
   const totalCheckAmount = paid.reduce((s, i) => s + (i.checkAmount || 0), 0);
   const totalAdjustment  = paid.reduce((s, i) => s + (i.adjustment || 0), 0);
 
@@ -110,11 +147,7 @@ const PaidInvoices: React.FC<Props> = ({ invoices, onUpdateInvoice, onDeleteInvo
 
           {/* Actions */}
           <div style={st.actions}>
-            <button
-              style={{ ...st.btnPrimary, opacity: paid.length === 0 ? 0.45 : 1 }}
-              onClick={openDepo}
-              disabled={paid.length === 0}
-            >
+            <button style={st.btnPrimary} onClick={openDepo}>
               <DollarSign size={14} color="#fff" /> Add Depo.
             </button>
             <button style={st.btnOutline} onClick={toggleAll}>
@@ -200,99 +233,117 @@ const PaidInvoices: React.FC<Props> = ({ invoices, onUpdateInvoice, onDeleteInvo
           </div>
 
           <div style={st.note}>
-            <strong>Note:</strong> Click Add Depo. any time — checking rows here first just pre-selects them; you can
-            also pick which invoices the deposit covers directly inside the dialog.
+            <strong>Note:</strong> Type an existing invoice number to auto-fill its Date/Name/Total Due (still
+            editable), or type a new number to record a deposit from scratch.
           </div>
 
         </div>
       </div>
 
-      {/* ── Add Deposit modal ── */}
+      {/* ── Add Deposit modal (single invoice, Add-New-Customer style form) ── */}
       {showDepo && (
         <div style={dlg.overlay} onClick={e => e.target === e.currentTarget && setShowDepo(false)}>
           <div style={dlg.box}>
             <div style={dlg.header}>
               <div>
                 <div style={dlg.title}>Add Deposit</div>
-                <div style={dlg.sub}>{modalSelected.size} of {paid.length} invoice{paid.length !== 1 ? 's' : ''} selected</div>
+                <div style={dlg.sub}>Enter the invoice and check details</div>
               </div>
               <button style={dlg.closeBtn} onClick={() => setShowDepo(false)}><X size={16} color="#fff" /></button>
             </div>
+
             <div style={dlg.body}>
-              <div style={dlg.selectedTableWrapper}>
-                <table style={dlg.selectedTable}>
-                  <thead>
-                    <tr>
-                      <th style={{ ...dlg.selTh, width: 32 }}></th>
-                      <th style={dlg.selTh}>Invoice #</th>
-                      <th style={dlg.selTh}>Date</th>
-                      <th style={dlg.selTh}>Name</th>
-                      <th style={{ ...dlg.selTh, textAlign: 'right' as const }}>Total Due</th>
-                      <th style={dlg.selTh}>Paid Date</th>
-                      <th style={dlg.selTh}>Check #</th>
-                      <th style={{ ...dlg.selTh, textAlign: 'right' as const }}>Check Amount</th>
-                      <th style={{ ...dlg.selTh, textAlign: 'right' as const }}>Adjustment</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paid.map(inv => {
-                      const edit = rowEdits[inv.id] ?? { paidDate: '', checkNumber: '', checkAmount: '', adjustment: '' };
-                      const isModalSel = modalSelected.has(inv.id);
-                      return (
-                        <tr key={inv.id} style={{ background: isModalSel ? '#f0fdf4' : '#fff' }}>
-                          <td style={{ ...dlg.selTd, textAlign: 'center' as const }}>
-                            <button style={st.checkBtn} onClick={() => toggleModalRow(inv.id)}>
-                              {isModalSel ? <CheckSquare size={15} color="#16a34a" /> : <Square size={15} color="#d1d5db" />}
-                            </button>
-                          </td>
-                          <td style={{ ...dlg.selTd, fontWeight: 700, color: '#16a34a' }}>{inv.id}</td>
-                          <td style={dlg.selTd}>{inv.date}</td>
-                          <td style={dlg.selTd}>{inv.soldTo || ''}</td>
-                          <td style={{ ...dlg.selTd, textAlign: 'right' as const }}>${(inv.amount || 0).toFixed(2)}</td>
-                          <td style={dlg.selTd}>
-                            <input
-                              type="date"
-                              value={edit.paidDate}
-                              onChange={e => updateRowEdit(inv.id, 'paidDate', e.target.value)}
-                              style={dlg.rowInput}
-                            />
-                          </td>
-                          <td style={dlg.selTd}>
-                            <input
-                              type="text"
-                              value={edit.checkNumber}
-                              onChange={e => updateRowEdit(inv.id, 'checkNumber', e.target.value)}
-                              placeholder="e.g. 1234"
-                              style={dlg.rowInput}
-                            />
-                          </td>
-                          <td style={dlg.selTd}>
-                            <input
-                              type="text" inputMode="decimal"
-                              value={edit.checkAmount}
-                              onChange={e => updateRowEdit(inv.id, 'checkAmount', e.target.value)}
-                              placeholder="0.00"
-                              style={{ ...dlg.rowInput, textAlign: 'right' as const }}
-                            />
-                          </td>
-                          <td style={dlg.selTd}>
-                            <input
-                              type="text" inputMode="decimal"
-                              value={edit.adjustment}
-                              onChange={e => updateRowEdit(inv.id, 'adjustment', e.target.value)}
-                              placeholder="0.00"
-                              style={{ ...dlg.rowInput, textAlign: 'right' as const }}
-                            />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              {depoError && <div style={dlg.errorNote}>{depoError}</div>}
+
+              <div style={dlg.field}>
+                <label style={dlg.label}>Invoice # <span style={dlg.req}>*</span></label>
+                <input
+                  style={dlg.input}
+                  type="text" inputMode="numeric"
+                  value={depoInvoiceId}
+                  onChange={e => handleInvoiceIdChange(e.target.value)}
+                  placeholder="e.g. 15"
+                />
+              </div>
+
+              <div style={dlg.row}>
+                <div style={dlg.field}>
+                  <label style={dlg.label}>Date</label>
+                  <input
+                    style={dlg.input}
+                    type="date"
+                    value={depoForm.date}
+                    onChange={e => setDepoForm(f => ({ ...f, date: e.target.value }))}
+                  />
+                </div>
+                <div style={dlg.field}>
+                  <label style={dlg.label}>Name</label>
+                  <input
+                    style={dlg.input}
+                    value={depoForm.name}
+                    onChange={e => setDepoForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. APEX GLASS"
+                  />
+                </div>
+                <div style={dlg.field}>
+                  <label style={dlg.label}>Total Due</label>
+                  <input
+                    style={dlg.input}
+                    type="text" inputMode="decimal"
+                    value={depoForm.totalDue}
+                    onChange={e => setDepoForm(f => ({ ...f, totalDue: e.target.value }))}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+
+              <div style={dlg.row}>
+                <div style={dlg.field}>
+                  <label style={dlg.label}>Paid Date</label>
+                  <input
+                    style={dlg.input}
+                    type="date"
+                    value={depoForm.paidDate}
+                    onChange={e => setDepoForm(f => ({ ...f, paidDate: e.target.value }))}
+                  />
+                </div>
+                <div style={dlg.field}>
+                  <label style={dlg.label}>Cheque #</label>
+                  <input
+                    style={dlg.input}
+                    value={depoForm.checkNumber}
+                    onChange={e => setDepoForm(f => ({ ...f, checkNumber: e.target.value }))}
+                    placeholder="e.g. 1234"
+                  />
+                </div>
+              </div>
+
+              <div style={dlg.row}>
+                <div style={dlg.field}>
+                  <label style={dlg.label}>Check Amount</label>
+                  <input
+                    style={dlg.input}
+                    type="text" inputMode="decimal"
+                    value={depoForm.checkAmount}
+                    onChange={e => setDepoForm(f => ({ ...f, checkAmount: e.target.value }))}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div style={dlg.field}>
+                  <label style={dlg.label}>Adjustment</label>
+                  <input
+                    style={dlg.input}
+                    type="text" inputMode="decimal"
+                    value={depoForm.adjustment}
+                    onChange={e => setDepoForm(f => ({ ...f, adjustment: e.target.value }))}
+                    placeholder="0.00"
+                  />
+                </div>
               </div>
             </div>
+
             <div style={dlg.footer}>
-              <button style={dlg.btnSave} onClick={applyDepo}><Check size={14} /> Apply to Selected</button>
+              <button style={dlg.btnSave} onClick={saveDepo}><Check size={14} /> Save Deposit</button>
               <button style={dlg.btnCancel} onClick={() => setShowDepo(false)}>Cancel</button>
             </div>
           </div>
@@ -335,17 +386,18 @@ const st: Record<string, React.CSSProperties> = {
 
 const dlg: Record<string, React.CSSProperties> = {
   overlay:  { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  box:      { background: '#fff', borderRadius: 12, width: 920, maxWidth: '96vw', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' },
-  header:   { background: '#16a34a', padding: '16px 20px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' },
-  title:    { fontSize: 16, fontWeight: 700, color: '#fff' },
-  sub:      { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  box:      { background: '#fff', borderRadius: 12, width: 480, maxWidth: '94vw', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' },
+  header:   { background: '#16a34a', padding: '18px 20px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' },
+  title:    { fontSize: 17, fontWeight: 700, color: '#fff' },
+  sub:      { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 3 },
   closeBtn: { background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 6, cursor: 'pointer', padding: 6, display: 'flex', alignItems: 'center' },
-  body:     { padding: '18px 20px', display: 'flex', flexDirection: 'column' as const, gap: 14, maxHeight: '70vh', overflowY: 'auto' as const },
-  selectedTableWrapper: { border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'auto' as const },
-  selectedTable: { width: '100%', borderCollapse: 'collapse' as const, minWidth: 860 },
-  selTh:    { padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#6b7280', textAlign: 'left' as const, background: '#f9fafb', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase' as const, letterSpacing: 0.4, whiteSpace: 'nowrap' as const },
-  selTd:    { padding: '6px 8px', fontSize: 12, color: '#111827', borderBottom: '1px solid #f3f4f6' },
-  rowInput: { width: '100%', minWidth: 90, padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, color: '#111827', outline: 'none', boxSizing: 'border-box' as const },
+  body:     { padding: '20px', display: 'flex', flexDirection: 'column' as const, gap: 14, maxHeight: '70vh', overflowY: 'auto' as const },
+  errorNote:{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: 7, padding: '9px 12px', fontSize: 12, color: '#dc2626' },
+  row:      { display: 'flex', gap: 12 },
+  field:    { display: 'flex', flexDirection: 'column' as const, gap: 5, flex: 1 },
+  label:    { fontSize: 12, fontWeight: 600, color: '#374151' },
+  req:      { color: '#ef4444' },
+  input:    { padding: '9px 12px', border: '1.5px solid #d1d5db', borderRadius: 7, fontSize: 13, color: '#111827', outline: 'none', boxSizing: 'border-box' as const, width: '100%' },
   footer:   { padding: '14px 20px 18px', display: 'flex', gap: 10, borderTop: '1px solid #f0f0f0' },
   btnSave:  { display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px', background: '#16a34a', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer' },
   btnCancel:{ marginLeft: 'auto', padding: '9px 16px', background: '#fff', border: '1.5px solid #e5e7eb', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer' },

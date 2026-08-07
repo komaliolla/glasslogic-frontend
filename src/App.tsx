@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from './api/client';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import PrintSetupModal from './components/PrintSetupModal';
@@ -43,6 +44,17 @@ const App: React.FC = () => {
   const [nextInvoiceId, setNextInvoiceId] = useState(19);
   const [invoicePrefill, setInvoicePrefill] = useState<InvoicePrefill | undefined>(undefined);
 
+  // Load persisted invoices from the backend once on mount — this is what makes
+  // saved invoices/deposits survive a page reload instead of living only in memory.
+  useEffect(() => {
+    api.getInvoices().then(records => {
+      setUserInvoices(records);
+      const maxId = records.reduce((m, r) => Math.max(m, r.id), 0);
+      if (maxId >= nextInvoiceId) setNextInvoiceId(maxId + 1);
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Real (saved) invoices shadow the demo rows once touched, and deletions apply
   // regardless of whether the row started as a demo or a real one.
   const visibleInvoices = [...userInvoices, ...MOCK_INVOICES.filter(m => !userInvoices.some(i => i.id === m.id))]
@@ -64,11 +76,13 @@ const App: React.FC = () => {
       return [record, ...prev];
     });
     if (record.id >= nextInvoiceId) setNextInvoiceId(record.id + 1);
+    api.saveInvoiceRecord(record).catch(() => {});
   };
 
   const handleDeleteInvoice = (id: number) => {
     setUserInvoices(prev => prev.filter(r => r.id !== id));
     setDeletedInvoiceIds(prev => new Set(prev).add(id));
+    api.deleteInvoiceRecord(id).catch(() => {});
   };
 
   const handleItemClick = (itemId: string) => {

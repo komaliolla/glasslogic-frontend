@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 // Central API client — all components import from here.
+import type { InvoiceRecord } from '../types';
+
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -99,6 +101,13 @@ export const api = {
   }) => request<{ success: boolean }>('/schedule', { method: 'PUT', body: JSON.stringify(data) }),
   deleteScheduleBooking: (data: { date: string; slot: string; slotIndex: 0 | 1 }) =>
     request<{ success: boolean }>('/schedule', { method: 'DELETE', body: JSON.stringify(data) }),
+
+  // ── Invoices ──────────────────────────────────────────────
+  getInvoices: () => request<InvoiceRecord[]>('/invoices'),
+  saveInvoiceRecord: (data: InvoiceRecord) =>
+    request<InvoiceRecord>('/invoices', { method: 'PUT', body: JSON.stringify(data) }),
+  deleteInvoiceRecord: (id: number) =>
+    request<{ success: boolean }>(`/invoices/${id}`, { method: 'DELETE' }),
 };
 
 // ── Types ─────────────────────────────────────────────────────
