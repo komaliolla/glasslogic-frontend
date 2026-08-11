@@ -13,9 +13,10 @@ import PaidInvoices     from './components/PaidInvoices';
 import Schedule         from './components/Schedule';
 import SendEDIClaims    from './components/SendEDIClaims';
 import PendingEDIClaims from './components/PendingEDIClaims';
+import Employees        from './components/Employees';
 import { InvoiceRecord, InvoicePrefill } from './types';
 
-type ActivePage  = 'customer-list' | 'discounts' | 'business-types' | 'nags-vehicle' | 'nags-part' | 'invoice' | 'invoice-list' | 'receivables-list' | 'schedule' | 'send-edi' | 'pending-edi' | null;
+type ActivePage  = 'customer-list' | 'discounts' | 'business-types' | 'nags-vehicle' | 'nags-part' | 'invoice' | 'invoice-list' | 'receivables-list' | 'schedule' | 'send-edi' | 'pending-edi' | 'employees' | null;
 type ActiveModal = 'print-setup' | null;
 
 const pageBreadcrumbs: Record<string, { section: string; item: string }> = {
@@ -30,6 +31,7 @@ const pageBreadcrumbs: Record<string, { section: string; item: string }> = {
   'send-edi':       { section: 'Invoice',      item: 'Send EDI Claims'    },
   'pending-edi':    { section: 'Invoice',      item: 'Pending EDI Claims' },
   'schedule':       { section: 'File',         item: 'Schedule'         },
+  'employees':      { section: 'User',         item: 'Employees'        },
 };
 
 const modalBreadcrumbs: Record<string, { section: string; item: string }> = {
@@ -97,6 +99,7 @@ const App: React.FC = () => {
     if (itemId === 'receivables-list') { setActivePage('receivables-list'); setActiveModal(null); }
     if (itemId === 'send-edi')       { setActivePage('send-edi');      setActiveModal(null); }
     if (itemId === 'pending-edi')    { setActivePage('pending-edi');   setActiveModal(null); }
+    if (itemId === 'employees')      { setActivePage('employees');     setActiveModal(null); }
   };
 
   const breadcrumb =
@@ -106,7 +109,7 @@ const App: React.FC = () => {
 
   return (
     <div style={styles.root}>
-      <Navbar breadcrumb={breadcrumb} />
+      <Navbar breadcrumb={breadcrumb} onItemClick={handleItemClick} />
       <div style={styles.body}>
         <Sidebar onItemClick={handleItemClick} />
         <main style={styles.main}>
@@ -158,6 +161,8 @@ const App: React.FC = () => {
             <PendingEDIClaims onClose={() => setActivePage(null)} />
           ) : activePage === 'schedule' ? (
             <Schedule onClose={() => setActivePage(null)} />
+          ) : activePage === 'employees' ? (
+            <Employees onClose={() => setActivePage(null)} />
           ) : (
             <div style={styles.placeholder}>
               <span style={styles.placeholderTitle}>ADMIN</span>

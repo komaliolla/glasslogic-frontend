@@ -3,9 +3,10 @@ import { User, ChevronDown, ChevronRight, Users, FileText, Wrench, UserCog, LogO
 
 interface NavbarProps {
   breadcrumb?: { section: string; item: string };
+  onItemClick?: (itemId: string) => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ breadcrumb }) => {
+const Navbar: React.FC<NavbarProps> = ({ breadcrumb, onItemClick }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -50,12 +51,16 @@ const Navbar: React.FC<NavbarProps> = ({ breadcrumb }) => {
         {dropdownOpen && (
           <div style={styles.dropdown}>
             {[
-              { icon: <Users size={15} />, label: 'Employees' },
-              { icon: <FileText size={15} />, label: 'Sales Tax Settings' },
-              { icon: <Wrench size={15} />, label: 'Glass Shop Information' },
-              { icon: <UserCog size={15} />, label: "Glass Logic User ID's" },
-            ].map(({ icon, label }) => (
-              <button key={label} style={styles.dropdownItem}>
+              { id: 'employees', icon: <Users size={15} />, label: 'Employees' },
+              { id: 'sales-tax-settings', icon: <FileText size={15} />, label: 'Sales Tax Settings' },
+              { id: 'shop-info', icon: <Wrench size={15} />, label: 'Glass Shop Information' },
+              { id: 'user-ids', icon: <UserCog size={15} />, label: "Glass Logic User ID's" },
+            ].map(({ id, icon, label }) => (
+              <button
+                key={id}
+                style={styles.dropdownItem}
+                onClick={() => { onItemClick?.(id); setDropdownOpen(false); }}
+              >
                 <span style={styles.dropdownIcon}>{icon}</span>
                 <span style={styles.dropdownLabel}>{label}</span>
               </button>

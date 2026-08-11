@@ -108,6 +108,13 @@ export const api = {
     request<InvoiceRecord>('/invoices', { method: 'PUT', body: JSON.stringify(data) }),
   deleteInvoiceRecord: (id: number) =>
     request<{ success: boolean }>(`/invoices/${id}`, { method: 'DELETE' }),
+
+  // ── Employees (user db) ─────────────────────────────────────
+  getEmployees: () => request<Employee[]>('/employees'),
+  createEmployee: (data: { id: number; name: string; total_working_hours: number }) =>
+    request<Employee>('/employees', { method: 'POST', body: JSON.stringify(data) }),
+  deleteEmployee: (id: number) =>
+    request<{ success: boolean }>(`/employees/${id}`, { method: 'DELETE' }),
 };
 
 // ── Types ─────────────────────────────────────────────────────
@@ -125,6 +132,12 @@ export interface Customer {
 export interface BusinessType {
   id: number;
   name: string;
+}
+
+export interface Employee {
+  id: number;
+  name: string;
+  total_working_hours: number;
 }
 
 export interface Discount {
